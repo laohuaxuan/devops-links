@@ -1,0 +1,43 @@
+server:
+  port: 8090
+
+database:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "your-password"
+  name: "devops_links"
+  charset: utf8mb4
+
+auth:
+  jwt_secret: "change-me"
+  token_expiry: "24h"
+  superadmin_initial_name: "root"
+  superadmin_initial_password: "Admin@123456"
+  registration_default_role: "guest"
+  smtp_host: "smtp.163.com"
+  smtp_port: 465
+  smtp_user: "your-email@163.com"
+  smtp_pass: "your-smtp-authorization-code"
+  smtp_from: "your-email@163.com"
+  ldap:
+    enabled: false
+    host: "ldap.example.com"
+    port: 389
+    use_ssl: false
+    start_tls: false
+    skip_tls_verify: false
+    bind_dn: "cn=readonly,dc=example,dc=com"
+    bind_password: ""
+    base_dn: "dc=example,dc=com"
+    user_filter: "(uid=%s)"
+    username_attr: "uid"
+    email_attr: "mail"
+    display_name_attr: "cn"
+    label: "LDAP"
+    default_role: "guest"
+
+upload:
+  dir: "data/uploads/icons"
+  max_size_mb: 2
+  url_prefix: "/uploads/icons"

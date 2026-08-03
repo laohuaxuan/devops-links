@@ -1,0 +1,43 @@
+server:
+  port: 8090
+
+database:
+  host: "127.0.0.1"
+  port: 3306
+  user: "root"
+  password: "123456"
+  name: "devops_links"
+  charset: utf8mb4
+
+auth:
+  jwt_secret: "devops-links-secret"
+  token_expiry: "24h"
+  superadmin_initial_name: "root"
+  superadmin_initial_password: "Admin@123456"
+  registration_default_role: "guest"
+  smtp_host: "smtp.163.com"
+  smtp_port: 465
+  smtp_user: "laohuaxuan@163.com"
+  smtp_pass: "SYjsf32BYafKjBjX"
+  smtp_from: "laohuaxuan@163.com"
+  ldap:
+    enabled: true
+    host: "10.1.7.5"
+    port: 636
+    use_ssl: true
+    start_tls: false
+    skip_tls_verify: true
+    bind_dn: "kube-auth"
+    bind_password: "RK$rPYHtW6uU"
+    base_dn: "OU=Users,OU=PJLAB,DC=pjlab,DC=org"
+    user_filter: "(sAMAccountName=%s)"
+    username_attr: "sAMAccountName"
+    email_attr: "mail"
+    display_name_attr: "displayName"
+    label: "使用AD账号完成身份验证"
+    default_role: "guest"
+
+upload:
+  dir: "data/uploads/icons"
+  max_size_mb: 2
+  url_prefix: "/uploads/icons"
