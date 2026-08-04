@@ -3,14 +3,22 @@ set -eu
 
 CONFIG_FILE="${CONFIG_FILE:-/app/config.yaml}"
 export CONFIG_FILE
+SERVER_BIN="${SERVER_BIN:-/usr/local/bin/devops-links-server}"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "[start] ERROR: config file not found: $CONFIG_FILE" >&2
   exit 1
 fi
 
-echo "[start] starting devops-links backend (CONFIG_FILE=$CONFIG_FILE)"
-/app/server &
+if [ ! -x "$SERVER_BIN" ]; then
+  echo "[start] ERROR: backend binary not found or not executable: $SERVER_BIN" >&2
+  echo "[start] DEBUG: listing /usr/local/bin and /app" >&2
+  ls -la /usr/local/bin /app 2>&1 || true
+  exit 1
+fi
+
+echo "[start] starting devops-links backend (CONFIG_FILE=$CONFIG_FILE, SERVER_BIN=$SERVER_BIN)"
+"$SERVER_BIN" &
 SERVER_PID=$!
 
 # 后端未就绪时不启动 nginx，避免对外只暴露静态页、API 502
