@@ -16,18 +16,14 @@ RUN npm run build
 FROM acr-openxlab-prod-registry-vpc.cn-shanghai.cr.aliyuncs.com/public/golang:1.25.6 AS backend-builder
 WORKDIR /src
 
-ARG TARGETOS=linux
-ARG TARGETARCH=amd64
-
 COPY . .
 
 # 将前端构建产物放入后端可托管目录
 COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
     go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
-    && go build -o /out/server ./cmd/server \
-    && test -f /out/server
+    && go build -o /out/server ./cmd/server
 
 #################
 # Runtime stage #
@@ -39,8 +35,6 @@ RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /app/data/uploads/icons
 
 COPY --from=backend-builder /out/server /app/server
-RUN chmod +x /app/server \
-    && test -x /app/server
 COPY --from=frontend-builder /src/frontend/dist /usr/share/nginx/html
 COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
