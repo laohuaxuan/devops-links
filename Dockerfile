@@ -14,6 +14,9 @@ RUN npm run build
 # Backend build stage #
 #######################
 FROM acr-openxlab-prod-registry-vpc.cn-shanghai.cr.aliyuncs.com/public/golang:1.25.6 AS backend-builder
+ENV CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=amd64
 WORKDIR /src
 
 COPY . .
@@ -21,8 +24,7 @@ COPY . .
 # 将前端构建产物放入后端可托管目录
 COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
+RUN go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
     && go build -o /out/server ./cmd/server
 
 #################
