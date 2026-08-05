@@ -1,9 +1,9 @@
 #!/bin/sh
 set -eu
 
-CONFIG_FILE="${CONFIG_FILE:-/app/config.yaml}"
+CONFIG_FILE="/app/config.yaml"
 export CONFIG_FILE
-SERVER_BIN="${SERVER_BIN:-/usr/local/bin/devops-links-server}"
+SERVER_BIN="/app/server"
 
 if [ ! -f "$CONFIG_FILE" ]; then
   echo "[start] ERROR: config file not found: $CONFIG_FILE" >&2

@@ -38,10 +38,9 @@ WORKDIR /app
 RUN apk add --no-cache ca-certificates tzdata \
     && mkdir -p /app/data/uploads/icons
 
-COPY --from=backend-builder /out/server /usr/local/bin/devops-links-server
-RUN chmod +x /usr/local/bin/devops-links-server \
-    && ln -sf /usr/local/bin/devops-links-server /app/server \
-    && test -x /usr/local/bin/devops-links-server
+COPY --from=backend-builder /out/server /app/server
+RUN chmod +x /app/server \
+    && test -x /app/server
 COPY --from=frontend-builder /src/frontend/dist /usr/share/nginx/html
 COPY deploy/nginx/nginx.conf /etc/nginx/nginx.conf
 COPY deploy/nginx/default.conf /etc/nginx/conf.d/default.conf
