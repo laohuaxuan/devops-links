@@ -26,7 +26,7 @@ COPY --from=frontend-builder /src/frontend/dist ./frontend/dist
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
     go env -w GOPROXY=https://mirrors.aliyun.com/goproxy/,direct \
-    && go build -ldflags="-s -w" -o /out/server ./cmd/server \
+    && go build -o /out/server ./cmd/server \
     && test -f /out/server
 
 #################
