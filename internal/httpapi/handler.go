@@ -1,10 +1,15 @@
 package httpapi
 
 import (
+	"errors"
+	"strings"
+
 	"devops-links/internal/auth"
 	"devops-links/internal/config"
 	"devops-links/internal/ldapauth"
 	"devops-links/internal/store"
+
+	"gorm.io/gorm"
 )
 
 type Handler struct {
@@ -38,20 +43,22 @@ func (h *Handler) EnsureInitialUsers() error {
 }
 
 func (h *Handler) EnsureSuperAdmin() error {
-	count, err := h.store.CountUsersByRole(store.RoleSuperAdmin)
-	if err != nil {
-		return err
+	name := strings.TrimSpace(h.cfg.Auth.SuperAdminInitialName)
+	if name == "" {
+		name = "root"
 	}
-	if count > 0 {
+	if _, err := h.store.GetUserByName(name); err == nil {
 		return nil
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
 	}
 	hash, err := h.auth.HashPassword(h.cfg.Auth.SuperAdminInitialPassword)
 	if err != nil {
 		return err
 	}
 	return h.store.CreateUser(&store.User{
-		Name: h.cfg.Auth.SuperAdminInitialName, DisplayName: h.cfg.Auth.SuperAdminInitialName,
-		Email: localPlaceholderEmail(h.cfg.Auth.SuperAdminInitialName),
+		Name: name, DisplayName: name,
+		Email: localPlaceholderEmail(name),
 		PasswordHash: hash, AuthSource: store.AuthSourceLocal, Role: store.RoleSuperAdmin, Status: store.UserStatusActive,
 	})
 }

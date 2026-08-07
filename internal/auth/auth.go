@@ -72,6 +72,9 @@ func (a *Service) Login(name, password string) (string, *store.User, error) {
 	if user.IsLDAP() {
 		return "", nil, fmt.Errorf("请使用 LDAP 登录")
 	}
+	if user.Role != store.RoleSuperAdmin {
+		return "", nil, fmt.Errorf("请使用 LDAP 登录")
+	}
 	if !a.ComparePassword(user.PasswordHash, password) {
 		return "", nil, fmt.Errorf("用户名或密码错误")
 	}

@@ -35,35 +35,80 @@ func (h *Handler) login(c *gin.Context) {
 	}
 	req.Username = strings.TrimSpace(req.Username)
 	req.Password = strings.TrimSpace(req.Password)
-	req.CaptchaToken = strings.TrimSpace(req.CaptchaToken)
-	req.CaptchaCode = strings.TrimSpace(req.CaptchaCode)
-	if req.CaptchaToken == "" || req.CaptchaCode == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "请输入验证码"})
-		return
-	}
-	if len(req.CaptchaCode) != 4 || !isNumeric(req.CaptchaCode) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码必须为4位数字"})
-		return
-	}
-	if !h.verifyCaptcha(req.CaptchaToken, req.CaptchaCode) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "验证码无效或已过期"})
-		return
-	}
 	if msg := validateUsername(req.Username); msg != "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 		return
 	}
-	if msg := validatePassword(req.Password); msg != "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+	if req.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "密码不能为空"})
 		return
 	}
-	token, user, err := h.auth.Login(req.Username, req.Password)
-	if err != nil {
+
+	if h.isSuperAdminLocalLoginUsername(req.Username) {
+		h.loginLocalSuperAdmin(c, req.Username, req.Password, true)
+		return
+	}
+
+	user, err := h.store.GetUserByName(req.Username)
+	if err == nil && store.IsSuperAdminRole(user.Role) && !user.IsLDAP() {
+		h.loginLocalSuperAdmin(c, req.Username, req.Password, false)
+		return
+	}
+
+	if h.ldap != nil && h.ldap.Enabled() {
+		h.loginLDAPWithCredentials(c, req.Username, req.Password)
+		return
+	}
+
+	if err == nil {
 		_ = h.store.WriteAudit(&store.AuditLog{
 			Username: req.Username, DisplayName: req.Username,
-			Action: "login", Result: "failed", IP: c.ClientIP(), Detail: err.Error(),
+			Action: "login", Result: "failed", IP: c.ClientIP(), Detail: "请使用 LDAP 登录",
 		})
-		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "请使用 LDAP 登录"})
+		return
+	}
+	_ = h.store.WriteAudit(&store.AuditLog{
+		Username: req.Username, DisplayName: req.Username,
+		Action: "login", Result: "failed", IP: c.ClientIP(), Detail: "用户名或密码错误",
+	})
+	c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+}
+
+func (h *Handler) isSuperAdminLocalLoginUsername(username string) bool {
+	name := strings.TrimSpace(username)
+	if name == "" {
+		return false
+	}
+	rootName := strings.TrimSpace(h.cfg.Auth.SuperAdminInitialName)
+	if rootName == "" {
+		rootName = "root"
+	}
+	return strings.EqualFold(name, rootName)
+}
+
+func (h *Handler) loginLocalSuperAdmin(c *gin.Context, username, password string, skipPasswordFormat bool) {
+	if !skipPasswordFormat {
+		if msg := validatePassword(password); msg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+			return
+		}
+	}
+	user, err := h.store.GetUserByName(username)
+	if err != nil || !store.IsSuperAdminRole(user.Role) {
+		_ = h.store.WriteAudit(&store.AuditLog{
+			Username: username, DisplayName: username,
+			Action: "login", Result: "failed", IP: c.ClientIP(), Detail: "用户名或密码错误",
+		})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
+		return
+	}
+	if !h.auth.ComparePassword(user.PasswordHash, password) {
+		_ = h.store.WriteAudit(&store.AuditLog{
+			UserID: user.ID, Username: user.Name, DisplayName: user.DisplayName,
+			Action: "login", Result: "failed", IP: c.ClientIP(), Detail: "用户名或密码错误",
+		})
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "用户名或密码错误"})
 		return
 	}
 	if !user.IsActive() {
@@ -72,6 +117,11 @@ func (h *Handler) login(c *gin.Context) {
 			Action: "login", Result: "failed", IP: c.ClientIP(), Detail: "user disabled",
 		})
 		c.JSON(http.StatusForbidden, gin.H{"error": "账号已禁用"})
+		return
+	}
+	token, err := h.auth.GenerateToken(user)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "generate token failed"})
 		return
 	}
 	h.writeAuditForUser(c, user, "login", "success", "login success")
@@ -102,10 +152,14 @@ func (h *Handler) loginLDAP(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "用户名和密码不能为空"})
 		return
 	}
-	info, err := h.ldap.Authenticate(req.Username, req.Password)
+	h.loginLDAPWithCredentials(c, req.Username, req.Password)
+}
+
+func (h *Handler) loginLDAPWithCredentials(c *gin.Context, username, password string) {
+	info, err := h.ldap.Authenticate(username, password)
 	if err != nil {
 		_ = h.store.WriteAudit(&store.AuditLog{
-			Username: req.Username, DisplayName: req.Username,
+			Username: username, DisplayName: username,
 			Action: "login_ldap", Result: "failed", IP: c.ClientIP(), Detail: err.Error(),
 		})
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})

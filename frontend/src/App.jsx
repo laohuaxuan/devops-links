@@ -36,15 +36,8 @@ function validateEmailInput(email) {
   return "";
 }
 
-function initialAuthView() {
-  const path = window.location.pathname || "";
-  if (path.startsWith("/reset-password")) return "reset";
-  if (path.startsWith("/register")) return "register";
-  return "login";
-}
-
 const ACTION_LABELS = {
-  login: "本地登录",
+  login: "超级管理员登录",
   login_ldap: "LDAP 登录",
   logout: "登出",
   create_user: "创建用户",
@@ -673,133 +666,27 @@ function EyeToggleIcon({ open }) {
   );
 }
 
-function LdapIcon() {
-  return (
-    <svg className="third-party-icon" viewBox="0 0 24 24" aria-hidden="true">
-      <path
-        fill="currentColor"
-        d="M12 2a4 4 0 0 1 4 4v1h1.5A2.5 2.5 0 0 1 20 9.5V11h-2v-.5a.5.5 0 0 0-.5-.5H14V6a2 2 0 1 0-4 0v4H6.5a.5.5 0 0 0-.5.5V11H4V9.5A2.5 2.5 0 0 1 6.5 7H8V6a4 4 0 0 1 4-4zm-6 11h12v2H6v-2zm1 4h4v2H7v-2zm6 0h4v2h-4v-2z"
-      />
-    </svg>
-  );
-}
-
 function LoginRegister({ onLogin, showToast }) {
-  const [view, setView] = useState(initialAuthView);
   const [loading, setLoading] = useState(false);
   const [loginError, setLoginError] = useState("");
-  const [forgotPasswordMessage, setForgotPasswordMessage] = useState({ type: "", text: "" });
   const [loginForm, setLoginForm] = useState({ username: "", password: "" });
   const [loginFieldErrors, setLoginFieldErrors] = useState({ username: "", password: "" });
   const [loginPasswordVisible, setLoginPasswordVisible] = useState(false);
-  const [loginCaptchaCode, setLoginCaptchaCode] = useState("");
-  const [loginCaptchaToken, setLoginCaptchaToken] = useState("");
-  const [loginCaptchaImageUrl, setLoginCaptchaImageUrl] = useState("");
-  const [authProviders, setAuthProviders] = useState([]);
-  const [ldapModalOpen, setLdapModalOpen] = useState(false);
-  const [ldapForm, setLdapForm] = useState({ username: "", password: "" });
-  const [ldapPasswordVisible, setLdapPasswordVisible] = useState(false);
-  const [ldapLabel, setLdapLabel] = useState("LDAP");
 
-  const [regUsername, setRegUsername] = useState("");
-  const [regUsernameValid, setRegUsernameValid] = useState(true);
-  const [regUsernameMessage, setRegUsernameMessage] = useState("");
-  const [regDisplayName, setRegDisplayName] = useState("");
-  const [regEmail, setRegEmail] = useState("");
-  const [regEmailValid, setRegEmailValid] = useState(true);
-  const [regEmailMessage, setRegEmailMessage] = useState("");
-  const [regPassword, setRegPassword] = useState("");
-  const [regPasswordMessage, setRegPasswordMessage] = useState("");
-  const [regConfirmPassword, setRegConfirmPassword] = useState("");
-  const [regConfirmMessage, setRegConfirmMessage] = useState("");
-  const [regCaptchaCode, setRegCaptchaCode] = useState("");
-  const [regCaptchaToken, setRegCaptchaToken] = useState("");
-  const [regCaptchaImageUrl, setRegCaptchaImageUrl] = useState("");
-
-  const [resetToken] = useState(() => new URLSearchParams(window.location.search).get("token") || "");
-  const [newPassword, setNewPassword] = useState("");
-  const [confirmNewPassword, setConfirmNewPassword] = useState("");
-  const [newPasswordError, setNewPasswordError] = useState("");
-  const [confirmNewPasswordError, setConfirmNewPasswordError] = useState("");
-
-  function goView(next) {
-    setView(next);
-    setLoginError("");
-    setForgotPasswordMessage({ type: "", text: "" });
-    const path = next === "register" ? "/register" : next === "reset" ? "/reset-password" : "/login";
-    const search = next === "reset" ? window.location.search : "";
-    window.history.pushState({}, "", path + search);
-  }
-
-  function refreshRegCaptcha() {
-    const token = crypto.randomUUID().replace(/-/g, "");
-    setRegCaptchaToken(token);
-    setRegCaptchaCode("");
-    setRegCaptchaImageUrl(`/api/captcha?token=${encodeURIComponent(token)}&t=${Date.now()}`);
-  }
-
-  function refreshLoginCaptcha() {
-    const token = crypto.randomUUID().replace(/-/g, "");
-    setLoginCaptchaToken(token);
-    setLoginCaptchaCode("");
-    setLoginCaptchaImageUrl(`/api/captcha?token=${encodeURIComponent(token)}&t=${Date.now()}`);
-  }
-
-  async function checkExists(field, value) {
-    if (!value) return false;
-    try {
-      const data = await api(`/api/check-exists?field=${field}&value=${encodeURIComponent(value)}`);
-      return !!data.exists;
-    } catch {
-      return false;
+  useEffect(() => {
+    const path = window.location.pathname || "";
+    if (path.startsWith("/register") || path.startsWith("/reset-password")) {
+      window.history.replaceState({}, "", "/login");
     }
-  }
-
-  useEffect(() => {
-    const onPop = () => setView(initialAuthView());
-    window.addEventListener("popstate", onPop);
-    return () => window.removeEventListener("popstate", onPop);
   }, []);
-
-  useEffect(() => {
-    if (view === "register") refreshRegCaptcha();
-    if (view === "login") refreshLoginCaptcha();
-  }, [view]);
-
-  useEffect(() => {
-    if (view !== "login") return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await api("/api/auth/providers");
-        if (cancelled) return;
-        const list = Array.isArray(data.providers) ? data.providers : [];
-        setAuthProviders(list);
-        const ldap = list.find((p) => p.id === "ldap" || p.type === "ldap");
-        if (ldap?.label) setLdapLabel(ldap.label);
-      } catch {
-        if (!cancelled) setAuthProviders([]);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [view]);
 
   async function handleLogin(e) {
     e.preventDefault();
     setLoginError("");
-    setForgotPasswordMessage({ type: "", text: "" });
     const usernameError = validateUsernameInput(loginForm.username);
-    const passwordError = validatePasswordInput(loginForm.password);
+    const passwordError = loginForm.password ? "" : "密码不能为空";
     setLoginFieldErrors({ username: usernameError, password: passwordError });
     if (usernameError || passwordError) return;
-    if (!loginCaptchaToken || !loginCaptchaCode) {
-      setLoginError("请输入验证码");
-      return;
-    }
-    if (!/^\d{4}$/.test(loginCaptchaCode)) {
-      setLoginError("验证码必须为4位数字");
-      return;
-    }
     setLoading(true);
     try {
       const data = await api("/api/login", {
@@ -807,454 +694,71 @@ function LoginRegister({ onLogin, showToast }) {
         body: JSON.stringify({
           username: loginForm.username.trim(),
           password: loginForm.password,
-          captcha_token: loginCaptchaToken,
-          captcha_code: loginCaptchaCode,
         }),
       });
       window.history.replaceState({}, "", "/");
       onLogin(data);
     } catch (err) {
       setLoginError(err.message);
-      refreshLoginCaptcha();
     } finally {
       setLoading(false);
     }
   }
-
-  async function handleLdapLogin(e) {
-    e.preventDefault();
-    setLoginError("");
-    setLoading(true);
-    try {
-      const data = await api("/api/login/ldap", {
-        method: "POST",
-        body: JSON.stringify({
-          username: ldapForm.username.trim(),
-          password: ldapForm.password,
-        }),
-      });
-      setLdapModalOpen(false);
-      window.history.replaceState({}, "", "/");
-      onLogin(data);
-    } catch (err) {
-      setLoginError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function handleForgotPassword() {
-    const account = loginForm.username.trim();
-    setLoginError("");
-    if (!account) {
-      setForgotPasswordMessage({ type: "error", text: "请先输入用户名或邮箱" });
-      return;
-    }
-    try {
-      const data = await api("/api/reset-password", {
-        method: "POST",
-        body: JSON.stringify({ account }),
-      });
-      setForgotPasswordMessage({
-        type: "success",
-        text: data.message || "重置链接已发送到注册邮箱，请查收邮件",
-      });
-    } catch (err) {
-      setForgotPasswordMessage({ type: "error", text: err.message });
-    }
-  }
-
-  async function validateRegUsername(value) {
-    setRegUsername(value);
-    if (value === "") {
-      setRegUsernameValid(true);
-      setRegUsernameMessage("");
-      return;
-    }
-    const msg = validateUsernameInput(value);
-    if (msg) {
-      setRegUsernameValid(false);
-      setRegUsernameMessage(msg);
-      return;
-    }
-    if (RESERVED_USERNAMES.includes(value.toLowerCase())) {
-      setRegUsernameValid(false);
-      setRegUsernameMessage("该用户名不允许注册");
-      return;
-    }
-    const exists = await checkExists("username", value);
-    if (exists) {
-      setRegUsernameValid(false);
-      setRegUsernameMessage("用户名已存在");
-    } else {
-      setRegUsernameValid(true);
-      setRegUsernameMessage("用户名格式正确");
-    }
-  }
-
-  async function validateRegEmail(value) {
-    setRegEmail(value);
-    if (value === "") {
-      setRegEmailValid(true);
-      setRegEmailMessage("");
-      return;
-    }
-    const msg = validateEmailInput(value);
-    if (msg) {
-      setRegEmailValid(false);
-      setRegEmailMessage(msg);
-      return;
-    }
-    const exists = await checkExists("email", value);
-    if (exists) {
-      setRegEmailValid(false);
-      setRegEmailMessage("邮箱已被注册");
-    } else {
-      setRegEmailValid(true);
-      setRegEmailMessage("邮箱格式正确");
-    }
-  }
-
-  async function submitRegister(e) {
-    e.preventDefault();
-    if (!regUsername || !regDisplayName.trim() || !regEmail || !regPassword || !regConfirmPassword) {
-      showToast("请填写所有字段");
-      return;
-    }
-    if (!regUsernameValid) {
-      showToast(regUsernameMessage || "用户名无效");
-      return;
-    }
-    if (!regEmailValid) {
-      showToast(regEmailMessage || "邮箱无效");
-      return;
-    }
-    if (regPassword !== regConfirmPassword) {
-      setRegConfirmMessage("两次输入的密码不一致");
-      showToast("两次输入的密码不一致");
-      return;
-    }
-    if (!isPasswordValid(regPassword)) {
-      setRegPasswordMessage(PASSWORD_RULE);
-      showToast(PASSWORD_RULE);
-      return;
-    }
-    if (!regCaptchaToken || !regCaptchaCode) {
-      showToast("请输入验证码");
-      return;
-    }
-    setLoading(true);
-    try {
-      await api("/api/register", {
-        method: "POST",
-        body: JSON.stringify({
-          username: regUsername,
-          display_name: regDisplayName.trim(),
-          email: regEmail.trim(),
-          password: regPassword,
-          confirm_password: regConfirmPassword,
-          captcha_token: regCaptchaToken,
-          captcha_code: regCaptchaCode,
-        }),
-      });
-      showToast("注册成功，请登录");
-      goView("login");
-    } catch (err) {
-      showToast(err.message);
-      refreshRegCaptcha();
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function submitChangePassword(e) {
-    e.preventDefault();
-    if (!resetToken) {
-      showToast("重置链接无效，请重新发起找回密码");
-      return;
-    }
-    const pwdErr = validatePasswordInput(newPassword);
-    if (pwdErr) {
-      setNewPasswordError(pwdErr);
-      showToast(pwdErr);
-      return;
-    }
-    if (newPassword !== confirmNewPassword) {
-      setConfirmNewPasswordError("两次输入的密码不一致");
-      showToast("两次输入的密码不一致");
-      return;
-    }
-    setLoading(true);
-    try {
-      await api("/api/change-password", {
-        method: "POST",
-        body: JSON.stringify({ token: resetToken, new_password: newPassword }),
-      });
-      showToast("密码已重置成功，请返回登录");
-      setNewPassword("");
-      setConfirmNewPassword("");
-      goView("login");
-    } catch (err) {
-      showToast(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  const hasLdap = authProviders.some((p) => p.id === "ldap" || p.type === "ldap");
 
   return (
     <div className="login-page">
-      {view === "login" ? (
-        <div className="login-card">
-          <h1>DevOps 链接导航</h1>
-          <h2 className="login-heading">登录</h2>
-          <form className="login-form" onSubmit={handleLogin}>
-            <label>
-              用户名
+      <div className="login-card">
+        <h1>DevOps 链接导航</h1>
+        <h2 className="login-heading">使用AD域账号进行验证</h2>
+        <form className="login-form" onSubmit={handleLogin}>
+          <label>
+            用户名
+            <input
+              value={loginForm.username}
+              onChange={(e) => {
+                const username = e.target.value;
+                setLoginForm({ ...loginForm, username });
+                setLoginFieldErrors((prev) => ({ ...prev, username: username ? validateUsernameInput(username) : "" }));
+              }}
+              placeholder="请输入用户名"
+              autoComplete="username"
+              required
+            />
+            {loginFieldErrors.username ? <span className="field-error">{loginFieldErrors.username}</span> : null}
+          </label>
+          <label>
+            密码
+            <div className="password-input-row auth-password-row">
               <input
-                value={loginForm.username}
+                type={loginPasswordVisible ? "text" : "password"}
+                value={loginForm.password}
                 onChange={(e) => {
-                  const username = e.target.value;
-                  setLoginForm({ ...loginForm, username });
-                  setForgotPasswordMessage({ type: "", text: "" });
-                  setLoginFieldErrors((prev) => ({ ...prev, username: username ? validateUsernameInput(username) : "" }));
+                  const password = e.target.value;
+                  setLoginForm({ ...loginForm, password });
+                  setLoginFieldErrors((prev) => ({ ...prev, password: password ? "" : "密码不能为空" }));
                 }}
-                placeholder="请输入用户名"
+                placeholder="请输入密码"
+                autoComplete="current-password"
                 required
               />
-              {loginFieldErrors.username ? <span className="field-error">{loginFieldErrors.username}</span> : null}
-            </label>
-            <label>
-              密码
-              <div className="password-input-row auth-password-row">
-                <input
-                  type={loginPasswordVisible ? "text" : "password"}
-                  value={loginForm.password}
-                  onChange={(e) => {
-                    const password = e.target.value;
-                    setLoginForm({ ...loginForm, password });
-                    setLoginFieldErrors((prev) => ({ ...prev, password: password ? validatePasswordInput(password) : "" }));
-                  }}
-                  placeholder="请输入密码"
-                  autoComplete="current-password"
-                  required
-                />
-                <button
-                  type="button"
-                  className="password-toggle-btn"
-                  title={loginPasswordVisible ? "隐藏密码" : "显示密码"}
-                  aria-label={loginPasswordVisible ? "隐藏密码" : "显示密码"}
-                  onClick={() => setLoginPasswordVisible((v) => !v)}
-                >
-                  <EyeToggleIcon open={loginPasswordVisible} />
-                </button>
-              </div>
-              {loginFieldErrors.password ? <span className="field-error">{loginFieldErrors.password}</span> : null}
-            </label>
-            <div className="captcha-section">
-              <label>验证码</label>
-              <div className="captcha-row">
-                <input
-                  className="captcha-input"
-                  value={loginCaptchaCode}
-                  onChange={(e) => setLoginCaptchaCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                  placeholder="请输入4位数字验证码"
-                  inputMode="numeric"
-                  maxLength={4}
-                  required
-                />
-                <img
-                  src={loginCaptchaImageUrl}
-                  alt="验证码"
-                  className="captcha-img"
-                  onClick={refreshLoginCaptcha}
-                  title="点击刷新"
-                />
-              </div>
-            </div>
-            {loginError ? <p className="error-text">{loginError}</p> : null}
-            <button type="submit" className="login-submit-btn" disabled={loading}>{loading ? "登录中..." : "登录"}</button>
-          </form>
-          {hasLdap ? (
-            <div className="third-party-login">
-              <span className="third-party-label">第三方登录：</span>
               <button
                 type="button"
-                className="third-party-btn"
-                title={`${ldapLabel} 登录`}
-                aria-label={`${ldapLabel} 登录`}
-                onClick={() => {
-                  setLoginError("");
-                  setForgotPasswordMessage({ type: "", text: "" });
-                  setLdapPasswordVisible(false);
-                  setLdapModalOpen(true);
-                }}
+                className="password-toggle-btn"
+                title={loginPasswordVisible ? "隐藏密码" : "显示密码"}
+                aria-label={loginPasswordVisible ? "隐藏密码" : "显示密码"}
+                onClick={() => setLoginPasswordVisible((v) => !v)}
               >
-                <LdapIcon />
-                <span>{ldapLabel}</span>
+                <EyeToggleIcon open={loginPasswordVisible} />
               </button>
             </div>
-          ) : null}
-          {forgotPasswordMessage.text ? (
-            <p className={forgotPasswordMessage.type === "error" ? "error-text auth-feedback" : "success-text auth-feedback"}>
-              {forgotPasswordMessage.text}
-            </p>
-          ) : null}
-          <div className="auth-links">
-            <button type="button" className="link-btn" onClick={handleForgotPassword}>忘记密码？</button>
-            <span className="auth-links-sep">或</span>
-            <button type="button" className="link-btn" onClick={() => goView("register")}>注册新账号</button>
-          </div>
-        </div>
-      ) : null}
-
-      {view === "register" ? (
-        <form className="login-card login-card-wide" onSubmit={submitRegister}>
-          <h1>注册新账号</h1>
-          <p className="login-sub">注册后默认角色为游客</p>
-          <label>
-            用户名 *
-            <input required value={regUsername} onChange={(e) => validateRegUsername(e.target.value)} placeholder="字母、数字、._-" />
-            {regUsernameMessage ? <span className={regUsernameValid ? "field-hint" : "field-error"}>{regUsernameMessage}</span> : null}
+            {loginFieldErrors.password ? <span className="field-error">{loginFieldErrors.password}</span> : null}
           </label>
-          <label>
-            显示名 *
-            <input required value={regDisplayName} onChange={(e) => setRegDisplayName(e.target.value)} />
-          </label>
-          <label>
-            邮箱 *
-            <input required type="email" value={regEmail} onChange={(e) => validateRegEmail(e.target.value)} />
-            {regEmailMessage ? <span className={regEmailValid ? "field-hint" : "field-error"}>{regEmailMessage}</span> : null}
-          </label>
-          <label>
-            密码 *
-            <input
-              type="password"
-              required
-              value={regPassword}
-              onChange={(e) => {
-                const v = e.target.value;
-                setRegPassword(v);
-                setRegPasswordMessage(v ? (isPasswordValid(v) ? "密码格式正确" : PASSWORD_RULE) : "");
-                setRegConfirmMessage(regConfirmPassword ? (v === regConfirmPassword ? "两次密码一致" : "两次输入的密码不一致") : "");
-              }}
-            />
-            {regPasswordMessage ? <span className={isPasswordValid(regPassword) ? "field-hint" : "field-error"}>{regPasswordMessage}</span> : null}
-          </label>
-          <label>
-            确认密码 *
-            <input
-              type="password"
-              required
-              value={regConfirmPassword}
-              onChange={(e) => {
-                const v = e.target.value;
-                setRegConfirmPassword(v);
-                setRegConfirmMessage(v ? (regPassword === v ? "两次密码一致" : "两次输入的密码不一致") : "");
-              }}
-            />
-            {regConfirmMessage ? <span className={regPassword === regConfirmPassword ? "field-hint" : "field-error"}>{regConfirmMessage}</span> : null}
-          </label>
-          <div className="captcha-section">
-            <label>验证码 *</label>
-            <div className="captcha-row">
-              <input
-                className="captcha-input"
-                value={regCaptchaCode}
-                onChange={(e) => setRegCaptchaCode(e.target.value.replace(/\D/g, "").slice(0, 4))}
-                placeholder="4位数字"
-                inputMode="numeric"
-                maxLength={4}
-                required
-              />
-              <img src={regCaptchaImageUrl} alt="验证码" className="captcha-img" onClick={refreshRegCaptcha} title="点击刷新" />
-            </div>
-          </div>
-          <button type="submit" className="login-submit-btn" disabled={loading}>{loading ? "注册中..." : "注册"}</button>
-          <div className="auth-links auth-links-single">
-            <button type="button" className="link-btn" onClick={() => goView("login")}>返回登录</button>
-          </div>
+          {loginError ? <p className="error-text">{loginError}</p> : null}
+          <button type="submit" className="login-submit-btn" disabled={loading}>
+            {loading ? "登录中..." : "登录"}
+          </button>
         </form>
-      ) : null}
-
-      {view === "reset" ? (
-        <form className="login-card" onSubmit={submitChangePassword}>
-          <h1>重新设置密码</h1>
-          <p className="login-sub">请设置符合规范的新密码</p>
-          <label>
-            新密码 *
-            <input
-              type="password"
-              required
-              value={newPassword}
-              onChange={(e) => {
-                const v = e.target.value;
-                setNewPassword(v);
-                setNewPasswordError(v ? validatePasswordInput(v) : "");
-              }}
-            />
-            {newPasswordError ? <span className="field-error">{newPasswordError}</span> : null}
-          </label>
-          <label>
-            确认新密码 *
-            <input
-              type="password"
-              required
-              value={confirmNewPassword}
-              onChange={(e) => {
-                const v = e.target.value;
-                setConfirmNewPassword(v);
-                setConfirmNewPasswordError(v && v !== newPassword ? "两次输入的密码不一致" : "");
-              }}
-            />
-            {confirmNewPasswordError ? <span className="field-error">{confirmNewPasswordError}</span> : null}
-          </label>
-          <button type="submit" className="login-submit-btn" disabled={loading}>{loading ? "提交中..." : "确认修改"}</button>
-          <div className="auth-links auth-links-single">
-            <button type="button" className="link-btn" onClick={() => goView("login")}>返回登录</button>
-          </div>
-        </form>
-      ) : null}
-
-      {ldapModalOpen ? (
-        <div className="modal-overlay" onClick={() => !loading && setLdapModalOpen(false)}>
-          <form className="modal" onClick={(e) => e.stopPropagation()} onSubmit={handleLdapLogin}>
-            <h3>{ldapLabel} 登录</h3>
-            <label>
-              用户名
-              <input required value={ldapForm.username} onChange={(e) => setLdapForm({ ...ldapForm, username: e.target.value })} />
-            </label>
-              <label>
-                密码
-                <div className="password-input-row auth-password-row">
-                  <input
-                    type={ldapPasswordVisible ? "text" : "password"}
-                    required
-                    value={ldapForm.password}
-                    onChange={(e) => setLdapForm({ ...ldapForm, password: e.target.value })}
-                    placeholder="请输入 LDAP 密码"
-                    autoComplete="current-password"
-                  />
-                  <button
-                    type="button"
-                    className="password-toggle-btn"
-                    title={ldapPasswordVisible ? "隐藏密码" : "显示密码"}
-                    aria-label={ldapPasswordVisible ? "隐藏密码" : "显示密码"}
-                    onClick={() => setLdapPasswordVisible((v) => !v)}
-                  >
-                    <EyeToggleIcon open={ldapPasswordVisible} />
-                  </button>
-                </div>
-              </label>
-            {loginError ? <p className="error-text">{loginError}</p> : null}
-            <div className="modal-actions">
-              <button type="button" className="btn-secondary" disabled={loading} onClick={() => setLdapModalOpen(false)}>取消</button>
-              <button type="submit" disabled={loading}>{loading ? "登录中..." : "登录"}</button>
-            </div>
-          </form>
-        </div>
-      ) : null}
+      </div>
     </div>
   );
 }
@@ -1565,8 +1069,6 @@ export default function App() {
   const [activeTab, setActiveTab] = useState("links");
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
-  const forceAuthView = typeof window !== "undefined" && window.location.pathname.startsWith("/reset-password");
-
   const isAdmin = user?.is_admin === true;
   const isSuperAdmin = user?.is_super_admin === true;
 
@@ -1816,7 +1318,7 @@ export default function App() {
     }
   }
 
-  if (!token || !user || forceAuthView) {
+  if (!token || !user) {
     return (
       <>
         <ToastBanner toast={toast} onClose={dismissToast} />

@@ -38,6 +38,7 @@ textarea {
 .login-card h1 {
   margin: 0;
   font-size: 24px;
+  text-align: center;
 }
 
 .login-heading {
