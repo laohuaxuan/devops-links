@@ -20,10 +20,15 @@ container:
       subPath: config.yaml
       name: devops-links-config
       readOnly: false
+    - mountPath: /app/data/uploads/icons
+      name: devops-links-uploads
 volumes:
   - name: devops-links-config
     configMap:
       name: devops-links-config
+  - name: devops-links-uploads
+    persistentVolumeClaim:
+      claimName: devops-links-uploads
 service:
   type: ClusterIP
   ports:
