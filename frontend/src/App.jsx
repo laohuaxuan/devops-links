@@ -1282,6 +1282,10 @@ export default function App() {
     }
   }
 
+  function clearLinkIcon() {
+    setLinkForm((f) => ({ ...f, icon_path: "", icon_url: "" }));
+  }
+
   async function saveLink(e) {
     e.preventDefault();
     const payload = {
@@ -1556,7 +1560,24 @@ export default function App() {
             <label>
               网站图标
               <div className="icon-upload-row">
-                {linkForm.icon_url ? <img src={linkForm.icon_url} alt="" className="icon-preview" /> : null}
+                {linkForm.icon_url || linkForm.icon_path ? (
+                  <div className="icon-preview-wrap">
+                    {linkForm.icon_url ? (
+                      <img src={linkForm.icon_url} alt="" className="icon-preview" />
+                    ) : (
+                      <div className="icon-preview icon-preview-fallback" title={linkForm.icon_path} />
+                    )}
+                    <button
+                      type="button"
+                      className="icon-preview-remove"
+                      title="删除图标"
+                      aria-label="删除图标"
+                      onClick={clearLinkIcon}
+                    >
+                      ×
+                    </button>
+                  </div>
+                ) : null}
                 <input
                   type="file"
                   accept="image/*,.svg,.ico"
