@@ -23,17 +23,13 @@ func (h *Handler) RegisterRoutes(r *gin.Engine) {
 		api.PUT("/profile", h.updateProfile)
 		api.GET("/categories", h.listCategories)
 
-		privileged := api.Group("")
-		privileged.Use(h.requirePrivileged())
-		{
-			privileged.POST("/categories", h.createCategory)
-			privileged.PUT("/categories/:id", h.updateCategory)
-			privileged.DELETE("/categories/:id", h.deleteCategory)
-			privileged.POST("/links", h.createLink)
-			privileged.PUT("/links/:id", h.updateLink)
-			privileged.DELETE("/links/:id", h.deleteLink)
-			privileged.POST("/upload/icon", h.uploadIcon)
-		}
+		api.POST("/categories", h.createCategory)
+		api.PUT("/categories/:id", h.updateCategory)
+		api.DELETE("/categories/:id", h.deleteCategory)
+		api.POST("/links", h.createLink)
+		api.PUT("/links/:id", h.updateLink)
+		api.DELETE("/links/:id", h.deleteLink)
+		api.POST("/upload/icon", h.uploadIcon)
 
 		superAdmin := api.Group("")
 		superAdmin.Use(h.requireSuperAdmin())

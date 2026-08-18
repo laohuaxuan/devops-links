@@ -49,22 +49,20 @@ func (h *Handler) isSuperAdmin(c *gin.Context) bool {
 	return store.IsSuperAdminRole(h.currentRole(c))
 }
 
-func categoryCanManage(role string, userID uint, cat *store.Category) bool {
-	if store.IsSuperAdminRole(role) {
-		return true
+func normalizeCategoryScope(raw string) string {
+	scope := strings.TrimSpace(strings.ToLower(raw))
+	if scope == "" {
+		return store.CategoryScopeShared
 	}
-	if !store.IsPrivilegedRole(role) || cat == nil {
-		return false
-	}
-	if cat.IsRoot() {
-		return false
-	}
-	return cat.CreatedBy == userID
+	return scope
 }
 
-func linkCanManage(role string, userID uint, link *store.Link, cat *store.Category) bool {
-	if link == nil || cat == nil {
+func categoryCanManage(role string, userID uint, cat *store.Category) bool {
+	if cat == nil {
 		return false
+	}
+	if cat.IsPersonal() {
+		return cat.OwnerID == userID
 	}
 	if store.IsSuperAdminRole(role) {
 		return true
@@ -78,30 +76,34 @@ func linkCanManage(role string, userID uint, link *store.Link, cat *store.Catego
 	return cat.CreatedBy == userID
 }
 
-func (h *Handler) listCategories(c *gin.Context) {
-	categories, err := h.store.ListCategories()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
+func linkCanManage(role string, userID uint, link *store.Link, cat *store.Category) bool {
+	if link == nil || cat == nil {
+		return false
 	}
-
-	catByID := make(map[uint]store.Category, len(categories))
-	for _, cat := range categories {
-		catByID[cat.ID] = cat
+	if cat.IsPersonal() {
+		return cat.OwnerID == userID
 	}
+	if store.IsSuperAdminRole(role) {
+		return true
+	}
+	if !store.IsPrivilegedRole(role) {
+		return false
+	}
+	if cat.IsRoot() {
+		return false
+	}
+	return cat.CreatedBy == userID
+}
 
+func (h *Handler) buildCategoryTree(categories []store.Category, role string, userID uint) []gin.H {
 	linksByCategory := make(map[uint][]store.Link)
 	for _, cat := range categories {
 		links, err := h.store.ListLinksByCategoryID(cat.ID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
+			continue
 		}
 		linksByCategory[cat.ID] = links
 	}
-
-	role := h.currentRole(c)
-	userID := h.currentUserID(c)
 
 	buildLinks := func(cat store.Category) []gin.H {
 		items := linksByCategory[cat.ID]
@@ -117,6 +119,8 @@ func (h *Handler) listCategories(c *gin.Context) {
 			"id":         cat.ID,
 			"parent_id":  cat.ParentID,
 			"name":       cat.Name,
+			"scope":      cat.Scope,
+			"owner_id":   cat.OwnerID,
 			"sort_order": cat.SortOrder,
 			"created_by": cat.CreatedBy,
 			"can_manage": categoryCanManage(role, userID, &cat),
@@ -143,20 +147,37 @@ func (h *Handler) listCategories(c *gin.Context) {
 		for _, child := range children {
 			childLinks := linksByCategory[child.ID]
 			totalLinks += len(childLinks)
-			item := buildCategory(child)
-			childOut = append(childOut, item)
+			childOut = append(childOut, buildCategory(child))
 		}
 		root := buildCategory(cat)
 		root["children"] = childOut
 		root["link_count"] = totalLinks
 		out = append(out, root)
 	}
+	return out
+}
+
+func (h *Handler) listCategories(c *gin.Context) {
+	userID := h.currentUserID(c)
+	role := h.currentRole(c)
+
+	sharedCategories, err := h.store.ListCategoriesByScope(store.CategoryScopeShared, 0)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	personalCategories, err := h.store.ListCategoriesByScope(store.CategoryScopePersonal, userID)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"categories":       out,
-		"is_admin":         h.isPrivileged(c),
-		"is_super_admin":   h.isSuperAdmin(c),
-		"user_id":          userID,
+		"categories":          h.buildCategoryTree(sharedCategories, role, userID),
+		"personal_categories": h.buildCategoryTree(personalCategories, role, userID),
+		"is_admin":            h.isPrivileged(c),
+		"is_super_admin":      h.isSuperAdmin(c),
+		"user_id":             userID,
 	})
 }
 
@@ -164,6 +185,7 @@ type categoryRequest struct {
 	Name      string `json:"name"`
 	SortOrder int    `json:"sort_order"`
 	ParentID  uint   `json:"parent_id"`
+	Scope     string `json:"scope"`
 }
 
 func (h *Handler) createCategory(c *gin.Context) {
@@ -180,29 +202,59 @@ func (h *Handler) createCategory(c *gin.Context) {
 
 	userID := h.currentUserID(c)
 	role := h.currentRole(c)
+	scope := normalizeCategoryScope(req.Scope)
+	ownerID := uint(0)
 
-	if req.ParentID == 0 {
-		if !store.IsSuperAdminRole(role) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "请联系超级管理员创建大分类"})
-			return
-		}
-	} else {
-		if !store.IsPrivilegedRole(role) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
-			return
+	switch scope {
+	case store.CategoryScopePersonal:
+		ownerID = userID
+		if req.ParentID == 0 {
+			break
 		}
 		parent, err := h.store.GetCategory(req.ParentID)
 		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "父分类不存在"})
 			return
 		}
+		if !parent.IsPersonal() || parent.OwnerID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "无权在该分类下创建子分类"})
+			return
+		}
 		if !parent.IsRoot() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "只能在顶级分类下创建子分类"})
 			return
 		}
+	case store.CategoryScopeShared:
+		if req.ParentID == 0 {
+			if !store.IsSuperAdminRole(role) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "请联系超级管理员创建大分类"})
+				return
+			}
+		} else {
+			if !store.IsPrivilegedRole(role) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "需要管理员权限"})
+				return
+			}
+			parent, err := h.store.GetCategory(req.ParentID)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "父分类不存在"})
+				return
+			}
+			if parent.IsPersonal() {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "不能在个人空间分类下创建共享分类"})
+				return
+			}
+			if !parent.IsRoot() {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "只能在顶级分类下创建子分类"})
+				return
+			}
+		}
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的分类范围"})
+		return
 	}
 
-	if existing, err := h.store.GetCategoryByParentAndName(req.ParentID, name); err == nil && existing != nil {
+	if existing, err := h.store.GetCategoryByParentAndName(req.ParentID, name, scope, ownerID); err == nil && existing != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "同级分类名称已存在"})
 		return
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -214,13 +266,15 @@ func (h *Handler) createCategory(c *gin.Context) {
 		Name:      name,
 		SortOrder: req.SortOrder,
 		ParentID:  req.ParentID,
+		Scope:     scope,
+		OwnerID:   ownerID,
 		CreatedBy: userID,
 	}
 	if err := h.store.CreateCategory(item); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	h.writeAudit(c, "create_category", "success", fmt.Sprintf("created category %s parent=%d", name, req.ParentID))
+	h.writeAudit(c, "create_category", "success", fmt.Sprintf("created category %s scope=%s parent=%d", name, scope, req.ParentID))
 	c.JSON(http.StatusCreated, gin.H{"id": item.ID, "message": "created"})
 }
 
@@ -246,12 +300,20 @@ func (h *Handler) updateCategory(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "分类不存在"})
 		return
 	}
+	if cat.IsPersonal() && cat.OwnerID != h.currentUserID(c) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "分类不存在"})
+		return
+	}
 	if !categoryCanManage(h.currentRole(c), h.currentUserID(c), cat) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "无权编辑该分类"})
 		return
 	}
 
-	if existing, err := h.store.GetCategoryByParentAndName(cat.ParentID, name); err == nil && existing.ID != id {
+	ownerID := cat.OwnerID
+	if !cat.IsPersonal() {
+		ownerID = 0
+	}
+	if existing, err := h.store.GetCategoryByParentAndName(cat.ParentID, name, cat.Scope, ownerID); err == nil && existing.ID != id {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "同级分类名称已存在"})
 		return
 	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
@@ -279,6 +341,10 @@ func (h *Handler) deleteCategory(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "分类不存在"})
 		return
 	}
+	if cat.IsPersonal() && cat.OwnerID != h.currentUserID(c) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "分类不存在"})
+		return
+	}
 	if !categoryCanManage(h.currentRole(c), h.currentUserID(c), cat) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "无权删除该分类"})
 		return
@@ -301,17 +367,13 @@ type linkRequest struct {
 	SortOrder  int    `json:"sort_order"`
 }
 
-func (h *Handler) loadLinkCategory(link *store.Link) (*store.Category, error) {
-	if link == nil {
-		return nil, gorm.ErrRecordNotFound
-	}
-	return h.store.GetCategory(link.CategoryID)
-}
-
 func (h *Handler) ensureLinkCategoryManageable(c *gin.Context, categoryID uint) (*store.Category, error) {
 	cat, err := h.store.GetCategory(categoryID)
 	if err != nil {
 		return nil, err
+	}
+	if cat.IsPersonal() && cat.OwnerID != h.currentUserID(c) {
+		return nil, gorm.ErrRecordNotFound
 	}
 	if !linkCanManage(h.currentRole(c), h.currentUserID(c), &store.Link{CategoryID: categoryID}, cat) {
 		return nil, errForbiddenLink
@@ -331,8 +393,7 @@ func (h *Handler) createLink(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	cat, err := h.ensureLinkCategoryManageable(c, req.CategoryID)
-	if err != nil {
+	if _, err := h.ensureLinkCategoryManageable(c, req.CategoryID); err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "分类不存在"})
 			return
@@ -344,7 +405,6 @@ func (h *Handler) createLink(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	_ = cat
 
 	item := &store.Link{
 		CategoryID: req.CategoryID,
@@ -389,12 +449,20 @@ func (h *Handler) updateLink(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "链接不存在"})
 		return
 	}
+	if cat.IsPersonal() && cat.OwnerID != h.currentUserID(c) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "链接不存在"})
+		return
+	}
 	if !linkCanManage(h.currentRole(c), h.currentUserID(c), link, cat) {
 		c.JSON(http.StatusForbidden, gin.H{"error": "无权编辑该链接"})
 		return
 	}
 	targetCat, err := h.store.GetCategory(req.CategoryID)
 	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "分类不存在"})
+		return
+	}
+	if targetCat.IsPersonal() && targetCat.OwnerID != h.currentUserID(c) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "分类不存在"})
 		return
 	}
@@ -434,6 +502,10 @@ func (h *Handler) deleteLink(c *gin.Context) {
 	}
 	cat, err := h.store.GetCategory(link.CategoryID)
 	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "链接不存在"})
+		return
+	}
+	if cat.IsPersonal() && cat.OwnerID != h.currentUserID(c) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "链接不存在"})
 		return
 	}

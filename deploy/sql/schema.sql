@@ -70,11 +70,15 @@ CREATE TABLE IF NOT EXISTS `categories` (
   `updated_at` datetime(3) DEFAULT NULL,
   `parent_id` bigint unsigned DEFAULT 0,
   `name` varchar(128) NOT NULL,
+  `scope` varchar(16) NOT NULL DEFAULT 'shared',
+  `owner_id` bigint unsigned NOT NULL DEFAULT 0,
   `sort_order` int DEFAULT 0,
   `created_by` bigint unsigned DEFAULT 0,
   PRIMARY KEY (`id`),
-  UNIQUE KEY `idx_category_parent_name` (`parent_id`, `name`),
+  UNIQUE KEY `idx_category_scope_owner_parent_name` (`scope`, `owner_id`, `parent_id`, `name`),
   KEY `idx_categories_parent_id` (`parent_id`),
+  KEY `idx_categories_scope` (`scope`),
+  KEY `idx_categories_owner_id` (`owner_id`),
   KEY `idx_categories_created_by` (`created_by`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 

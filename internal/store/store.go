@@ -14,6 +14,9 @@ const (
 	RoleSuperAdmin = "superadmin"
 	RoleAdmin      = "admin"
 	RoleGuest      = "guest"
+
+	CategoryScopeShared   = "shared"
+	CategoryScopePersonal = "personal"
 )
 
 func IsPrivilegedRole(role string) bool {
@@ -51,14 +54,20 @@ type Category struct {
 	ID        uint      `gorm:"primaryKey;autoIncrement"`
 	CreatedAt time.Time
 	UpdatedAt time.Time
-	ParentID  uint      `gorm:"index;default:0;uniqueIndex:idx_category_parent_name"`
-	Name      string    `gorm:"size:128;not null;uniqueIndex:idx_category_parent_name"`
-	SortOrder int       `gorm:"default:0"`
-	CreatedBy uint      `gorm:"index;default:0"`
+	ParentID  uint   `gorm:"index;default:0;uniqueIndex:idx_category_scope_owner_parent_name"`
+	Name      string `gorm:"size:128;not null;uniqueIndex:idx_category_scope_owner_parent_name"`
+	Scope     string `gorm:"size:16;not null;default:shared;index;uniqueIndex:idx_category_scope_owner_parent_name"`
+	OwnerID   uint   `gorm:"index;default:0;uniqueIndex:idx_category_scope_owner_parent_name"`
+	SortOrder int    `gorm:"default:0"`
+	CreatedBy uint   `gorm:"index;default:0"`
 }
 
 func (c *Category) IsRoot() bool {
 	return c.ParentID == 0
+}
+
+func (c *Category) IsPersonal() bool {
+	return c.Scope == CategoryScopePersonal
 }
 
 type Link struct {
@@ -126,6 +135,7 @@ func New(dsn string) (*Store, error) {
 	if err := db.AutoMigrate(&User{}, &Category{}, &Link{}, &AuditLog{}, &ResetToken{}, &PasswordResetRequestLog{}); err != nil {
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	_ = db.Model(&Category{}).Where("scope = '' OR scope IS NULL").Update("scope", CategoryScopeShared).Error
 	var zero time.Time
 	_ = db.Model(&User{}).Where("password_changed_at IS NULL OR password_changed_at = ?", zero).
 		Update("password_changed_at", time.Now()).Error
@@ -168,12 +178,20 @@ func (s *Store) GetUserByID(id uint) (*User, error) {
 	return &u, nil
 }
 
-func (s *Store) ListCategories() ([]Category, error) {
+func (s *Store) ListCategoriesByScope(scope string, ownerID uint) ([]Category, error) {
 	var items []Category
-	if err := s.db.Order("sort_order asc, id asc").Find(&items).Error; err != nil {
+	query := s.db.Where("scope = ?", scope)
+	if scope == CategoryScopePersonal {
+		query = query.Where("owner_id = ?", ownerID)
+	}
+	if err := query.Order("sort_order asc, id asc").Find(&items).Error; err != nil {
 		return nil, err
 	}
 	return items, nil
+}
+
+func (s *Store) ListCategories() ([]Category, error) {
+	return s.ListCategoriesByScope(CategoryScopeShared, 0)
 }
 
 func (s *Store) GetCategory(id uint) (*Category, error) {
@@ -184,9 +202,12 @@ func (s *Store) GetCategory(id uint) (*Category, error) {
 	return &item, nil
 }
 
-func (s *Store) GetCategoryByParentAndName(parentID uint, name string) (*Category, error) {
+func (s *Store) GetCategoryByParentAndName(parentID uint, name, scope string, ownerID uint) (*Category, error) {
 	var item Category
-	if err := s.db.Where("parent_id = ? AND name = ?", parentID, strings.TrimSpace(name)).First(&item).Error; err != nil {
+	if err := s.db.Where(
+		"parent_id = ? AND name = ? AND scope = ? AND owner_id = ?",
+		parentID, strings.TrimSpace(name), scope, ownerID,
+	).First(&item).Error; err != nil {
 		return nil, err
 	}
 	return &item, nil

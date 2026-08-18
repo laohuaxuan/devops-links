@@ -198,9 +198,120 @@ function findParentCategoryId(categories, categoryId) {
   return null;
 }
 
-function categoryTypeLabel(category) {
+function categoryTypeLabel(category, space) {
   if (!category) return "";
+  if (space === "personal") {
+    return category.parent_id ? "个人子分类" : "个人大分类";
+  }
   return category.parent_id ? "子分类" : "大分类";
+}
+
+function CategorySidebar({
+  title,
+  categories,
+  expandedCategoryIds,
+  selectedCategoryId,
+  selectedSpace,
+  space,
+  canCreateRoot,
+  canCreateSub,
+  rootCreateDisabled,
+  rootCreateTitle,
+  onCreateRoot,
+  onCreateSub,
+  onToggleExpand,
+  onSelectCategory,
+  onEditCategory,
+  onDeleteCategory,
+  emptyTip,
+}) {
+  const isActiveSpace = selectedSpace === space;
+  return (
+    <div className="sidebar-section">
+      <div className="sidebar-head">
+        <h2>{title}</h2>
+        {canCreateRoot ? (
+          <button
+            type="button"
+            className="btn-small"
+            disabled={rootCreateDisabled}
+            title={rootCreateTitle}
+            onClick={onCreateRoot}
+          >
+            + 新建
+          </button>
+        ) : null}
+      </div>
+      <ul className="category-list">
+        {categories.map((cat) => {
+          const expanded = expandedCategoryIds.has(cat.id);
+          const isSelected = isActiveSpace && selectedCategoryId === cat.id;
+          return (
+            <li key={cat.id} className="category-group">
+              <div className="category-row category-row-root">
+                <div className="category-item-wrap">
+                  <button
+                    type="button"
+                    className="category-toggle"
+                    aria-label={expanded ? "收拢子分类" : "展开子分类"}
+                    title={expanded ? "收拢" : "展开"}
+                    onClick={() => onToggleExpand(cat.id)}
+                  >
+                    {expanded ? "−" : "+"}
+                  </button>
+                  <button
+                    type="button"
+                    className={isSelected ? "category-item active" : "category-item"}
+                    onClick={() => onSelectCategory(cat.id)}
+                  >
+                    <span className="category-name">{cat.name}</span>
+                    <span className="count">{cat.link_count ?? getDisplayLinks(cat).length}</span>
+                  </button>
+                </div>
+                {cat.can_manage ? (
+                  <div className="category-actions">
+                    <button type="button" onClick={() => onEditCategory(cat, 0)}>编辑</button>
+                    <button type="button" className="danger" onClick={() => onDeleteCategory(cat)}>删除</button>
+                  </div>
+                ) : null}
+              </div>
+              {expanded ? (
+                <div className="category-children">
+                  {(cat.children || []).map((child) => (
+                    <div key={child.id} className="category-row category-row-child">
+                      <button
+                        type="button"
+                        className={isActiveSpace && selectedCategoryId === child.id ? "category-item child active" : "category-item child"}
+                        onClick={() => onSelectCategory(child.id, cat.id)}
+                      >
+                        <span className="category-name">{child.name}</span>
+                        <span className="count">{(child.links || []).length}</span>
+                      </button>
+                      {child.can_manage ? (
+                        <div className="category-actions">
+                          <button type="button" onClick={() => onEditCategory(child, cat.id)}>编辑</button>
+                          <button type="button" className="danger" onClick={() => onDeleteCategory(child)}>删除</button>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  {canCreateSub ? (
+                    <button type="button" className="btn-subcategory" onClick={() => onCreateSub(cat.id)}>
+                      + 新建子分类
+                    </button>
+                  ) : null}
+                  {!(cat.children || []).length && !canCreateSub ? (
+                    <div className="category-empty-child">暂无子分类</div>
+                  ) : null}
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+        {categories.length === 0 ? <li className="empty-tip">{emptyTip}</li> : null}
+      </ul>
+    </div>
+  );
 }
 
 function defaultUserForm() {
@@ -1059,8 +1170,11 @@ export default function App() {
   const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
   const [user, setUser] = useState(null);
   const [categories, setCategories] = useState([]);
+  const [personalCategories, setPersonalCategories] = useState([]);
+  const [categorySpace, setCategorySpace] = useState("shared");
   const [selectedCategoryId, setSelectedCategoryId] = useState(null);
   const [expandedCategoryIds, setExpandedCategoryIds] = useState(() => new Set());
+  const [expandedPersonalCategoryIds, setExpandedPersonalCategoryIds] = useState(() => new Set());
   const { toast, showToast, dismissToast } = useToast();
   const [categoryModal, setCategoryModal] = useState(null);
   const [linkModal, setLinkModal] = useState(null);
@@ -1072,9 +1186,12 @@ export default function App() {
   const isAdmin = user?.is_admin === true;
   const isSuperAdmin = user?.is_super_admin === true;
 
+  const activeCategories = categorySpace === "personal" ? personalCategories : categories;
+  const activeExpandedIds = categorySpace === "personal" ? expandedPersonalCategoryIds : expandedCategoryIds;
+
   const selectedCategory = useMemo(
-    () => findCategoryById(categories, selectedCategoryId),
-    [categories, selectedCategoryId]
+    () => findCategoryById(activeCategories, selectedCategoryId),
+    [activeCategories, selectedCategoryId]
   );
 
   const displayLinks = useMemo(
@@ -1083,24 +1200,26 @@ export default function App() {
   );
 
   const manageableLinkCategories = useMemo(
-    () => linkTargetCategories(categories),
-    [categories]
+    () => linkTargetCategories(activeCategories),
+    [activeCategories]
   );
 
   useEffect(() => {
-    if (!selectedCategoryId || !categories.length) return;
-    const parentId = findParentCategoryId(categories, selectedCategoryId);
+    if (!selectedCategoryId || !activeCategories.length) return;
+    const parentId = findParentCategoryId(activeCategories, selectedCategoryId);
     if (!parentId) return;
-    setExpandedCategoryIds((prev) => {
+    const setter = categorySpace === "personal" ? setExpandedPersonalCategoryIds : setExpandedCategoryIds;
+    setter((prev) => {
       if (prev.has(parentId)) return prev;
       const next = new Set(prev);
       next.add(parentId);
       return next;
     });
-  }, [selectedCategoryId, categories]);
+  }, [selectedCategoryId, activeCategories, categorySpace]);
 
-  function toggleCategoryExpand(catId) {
-    setExpandedCategoryIds((prev) => {
+  function toggleCategoryExpand(catId, space = categorySpace) {
+    const setter = space === "personal" ? setExpandedPersonalCategoryIds : setExpandedCategoryIds;
+    setter((prev) => {
       const next = new Set(prev);
       if (next.has(catId)) {
         next.delete(catId);
@@ -1111,10 +1230,12 @@ export default function App() {
     });
   }
 
-  function selectCategory(categoryId, parentId = null) {
+  function selectCategory(categoryId, parentId = null, space = categorySpace) {
+    setCategorySpace(space);
     setSelectedCategoryId(categoryId);
     if (parentId) {
-      setExpandedCategoryIds((prev) => {
+      const setter = space === "personal" ? setExpandedPersonalCategoryIds : setExpandedCategoryIds;
+      setter((prev) => {
         if (prev.has(parentId)) return prev;
         const next = new Set(prev);
         next.add(parentId);
@@ -1125,16 +1246,29 @@ export default function App() {
 
   const loadCategories = useCallback(async (tok = token) => {
     const data = await api("/api/categories", {}, tok);
-    const nextCategories = data.categories || [];
-    setCategories(nextCategories);
-    if (nextCategories.length) {
-      setSelectedCategoryId((prev) => {
-        if (prev && findCategoryById(nextCategories, prev)) return prev;
-        return nextCategories[0].id;
-      });
-    } else {
-      setSelectedCategoryId(null);
-    }
+    const nextShared = data.categories || [];
+    const nextPersonal = data.personal_categories || [];
+    setCategories(nextShared);
+    setPersonalCategories(nextPersonal);
+    setSelectedCategoryId((prev) => {
+      if (prev && findCategoryById(nextShared, prev)) {
+        setCategorySpace("shared");
+        return prev;
+      }
+      if (prev && findCategoryById(nextPersonal, prev)) {
+        setCategorySpace("personal");
+        return prev;
+      }
+      if (nextShared.length) {
+        setCategorySpace("shared");
+        return nextShared[0].id;
+      }
+      if (nextPersonal.length) {
+        setCategorySpace("personal");
+        return nextPersonal[0].id;
+      }
+      return null;
+    });
   }, [token]);
 
   const refreshUser = useCallback(async (profilePatch, tok = token) => {
@@ -1187,6 +1321,8 @@ export default function App() {
     setToken("");
     setUser(null);
     setCategories([]);
+    setPersonalCategories([]);
+    setCategorySpace("shared");
     setActiveTab("links");
     setProfileModalOpen(false);
   }
@@ -1202,6 +1338,7 @@ export default function App() {
       name,
       sort_order: Number(categoryModal?.sort_order || 0),
       parent_id: Number(categoryModal?.parent_id || 0),
+      scope: categoryModal?.scope || "shared",
     };
     try {
       if (categoryModal?.id) {
@@ -1211,29 +1348,37 @@ export default function App() {
       }
       setCategoryModal(null);
       showToast("分类已保存");
+      if (payload.scope === "personal") {
+        setCategorySpace("personal");
+      }
       await loadCategories();
     } catch (err) {
       showToast(err.message);
     }
   }
 
-  function openCreateRootCategory() {
-    if (!isAdmin) return;
-    if (!isSuperAdmin) {
-      showToast("请联系超级管理员创建大分类", "error");
-      return;
+  function openCreateRootCategory(scope = "shared") {
+    if (scope === "shared") {
+      if (!isAdmin) return;
+      if (!isSuperAdmin) {
+        showToast("请联系超级管理员创建大分类", "error");
+        return;
+      }
     }
-    setCategoryModal({ name: "", sort_order: 0, parent_id: 0 });
+    setCategorySpace(scope);
+    setCategoryModal({ name: "", sort_order: 0, parent_id: 0, scope });
   }
 
-  function openCreateSubCategory(parentId) {
-    if (!isAdmin) return;
-    setExpandedCategoryIds((prev) => {
+  function openCreateSubCategory(parentId, scope = categorySpace) {
+    if (scope === "shared" && !isAdmin) return;
+    const setter = scope === "personal" ? setExpandedPersonalCategoryIds : setExpandedCategoryIds;
+    setter((prev) => {
       const next = new Set(prev);
       next.add(parentId);
       return next;
     });
-    setCategoryModal({ name: "", sort_order: 0, parent_id: parentId });
+    setCategorySpace(scope);
+    setCategoryModal({ name: "", sort_order: 0, parent_id: parentId, scope });
   }
 
   async function deleteCategory(cat) {
@@ -1361,93 +1506,44 @@ export default function App() {
       ) : (
         <div className="layout">
           <aside className="sidebar">
-            <div className="sidebar-head">
-              <h2>分类</h2>
-              <button
-                type="button"
-                className="btn-small"
-                disabled={!isAdmin}
-                title={!isAdmin ? "无权限" : isSuperAdmin ? "新建大分类" : "请联系超级管理员创建大分类"}
-                onClick={openCreateRootCategory}
-              >
-                + 新建
-              </button>
-            </div>
-            <ul className="category-list">
-              {categories.map((cat) => {
-                const expanded = expandedCategoryIds.has(cat.id);
-                return (
-                  <li key={cat.id} className="category-group">
-                    <div className="category-row category-row-root">
-                      <div className="category-item-wrap">
-                        <button
-                          type="button"
-                          className="category-toggle"
-                          aria-label={expanded ? "收拢子分类" : "展开子分类"}
-                          title={expanded ? "收拢" : "展开"}
-                          onClick={() => toggleCategoryExpand(cat.id)}
-                        >
-                          {expanded ? "−" : "+"}
-                        </button>
-                        <button
-                          type="button"
-                          className={selectedCategory?.id === cat.id ? "category-item active" : "category-item"}
-                          onClick={() => selectCategory(cat.id)}
-                        >
-                          <span className="category-name">{cat.name}</span>
-                          <span className="count">{cat.link_count ?? getDisplayLinks(cat).length}</span>
-                        </button>
-                      </div>
-                      {cat.can_manage ? (
-                        <div className="category-actions">
-                          <button type="button" onClick={() => setCategoryModal({ ...cat, sort_order: cat.sort_order ?? 0, parent_id: 0 })}>
-                            编辑
-                          </button>
-                          <button type="button" className="danger" onClick={() => deleteCategory(cat)}>
-                            删除
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                    {expanded ? (
-                      <div className="category-children">
-                        {(cat.children || []).map((child) => (
-                          <div key={child.id} className="category-row category-row-child">
-                            <button
-                              type="button"
-                              className={selectedCategory?.id === child.id ? "category-item child active" : "category-item child"}
-                              onClick={() => selectCategory(child.id, cat.id)}
-                            >
-                              <span className="category-name">{child.name}</span>
-                              <span className="count">{(child.links || []).length}</span>
-                            </button>
-                            {child.can_manage ? (
-                              <div className="category-actions">
-                                <button type="button" onClick={() => setCategoryModal({ ...child, sort_order: child.sort_order ?? 0, parent_id: cat.id })}>
-                                  编辑
-                                </button>
-                                <button type="button" className="danger" onClick={() => deleteCategory(child)}>
-                                  删除
-                                </button>
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                        {isAdmin ? (
-                          <button type="button" className="btn-subcategory" onClick={() => openCreateSubCategory(cat.id)}>
-                            + 新建子分类
-                          </button>
-                        ) : null}
-                        {!(cat.children || []).length && !isAdmin ? (
-                          <div className="category-empty-child">暂无子分类</div>
-                        ) : null}
-                      </div>
-                    ) : null}
-                  </li>
-                );
-              })}
-              {categories.length === 0 ? <li className="empty-tip">暂无分类</li> : null}
-            </ul>
+            <CategorySidebar
+              title="分类"
+              categories={categories}
+              expandedCategoryIds={expandedCategoryIds}
+              selectedCategoryId={selectedCategoryId}
+              selectedSpace={categorySpace}
+              space="shared"
+              canCreateRoot={isAdmin}
+              canCreateSub={isAdmin}
+              rootCreateDisabled={!isAdmin}
+              rootCreateTitle={!isAdmin ? "无权限" : isSuperAdmin ? "新建大分类" : "请联系超级管理员创建大分类"}
+              onCreateRoot={() => openCreateRootCategory("shared")}
+              onCreateSub={(parentId) => openCreateSubCategory(parentId, "shared")}
+              onToggleExpand={(catId) => toggleCategoryExpand(catId, "shared")}
+              onSelectCategory={(catId, parentId) => selectCategory(catId, parentId, "shared")}
+              onEditCategory={(cat, parentId) => setCategoryModal({ ...cat, sort_order: cat.sort_order ?? 0, parent_id: parentId, scope: "shared" })}
+              onDeleteCategory={deleteCategory}
+              emptyTip="暂无分类"
+            />
+            <CategorySidebar
+              title="个人空间"
+              categories={personalCategories}
+              expandedCategoryIds={expandedPersonalCategoryIds}
+              selectedCategoryId={selectedCategoryId}
+              selectedSpace={categorySpace}
+              space="personal"
+              canCreateRoot
+              canCreateSub
+              rootCreateDisabled={false}
+              rootCreateTitle="新建个人大分类"
+              onCreateRoot={() => openCreateRootCategory("personal")}
+              onCreateSub={(parentId) => openCreateSubCategory(parentId, "personal")}
+              onToggleExpand={(catId) => toggleCategoryExpand(catId, "personal")}
+              onSelectCategory={(catId, parentId) => selectCategory(catId, parentId, "personal")}
+              onEditCategory={(cat, parentId) => setCategoryModal({ ...cat, sort_order: cat.sort_order ?? 0, parent_id: parentId, scope: "personal" })}
+              onDeleteCategory={deleteCategory}
+              emptyTip="暂无个人分类，点击「+ 新建」开始"
+            />
           </aside>
 
           <main className="content">
@@ -1455,7 +1551,7 @@ export default function App() {
               <>
                 <div className="content-head">
                   <div>
-                    <span className="category-type-badge">{categoryTypeLabel(selectedCategory)}</span>
+                    <span className="category-type-badge">{categoryTypeLabel(selectedCategory, categorySpace)}</span>
                     <h2>{selectedCategory.name}</h2>
                   </div>
                   {selectedCategory.can_manage ? (
@@ -1493,7 +1589,9 @@ export default function App() {
                 ? "编辑分类"
                 : categoryModal.parent_id
                   ? "新建子分类"
-                  : "新建大分类"}
+                  : categoryModal.scope === "personal"
+                    ? "新建个人大分类"
+                    : "新建大分类"}
             </h3>
             <label>
               分类名称 *

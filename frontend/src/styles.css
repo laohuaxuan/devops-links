@@ -694,6 +694,13 @@ textarea {
   background: #fff;
   border-right: 1px solid #e5e7eb;
   padding: 16px;
+  overflow-y: auto;
+}
+
+.sidebar-section + .sidebar-section {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid #e5e7eb;
 }
 
 .sidebar-head {
